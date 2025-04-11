@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Lista de Downloads</title>
+</head>
+<body>
+<h1>Lista de Downloads</h1>
+<table border="1">
+    <thead>
+    <tr>
+        <th>ID</th>
+        <th>URL</th>
+        <th>Formato</th>
+        <th>Caminho do Arquivo</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr th:each="download : ${downloads}">
+        <td th:text="${download.id}"></td>
+        <td th:text="${download.url}"></td>
+        <td th:text="${download.format}"></td>
+        <td th:text="${download.filePath}"></td>
+    </tr>
+    </tbody>
+</table>
+<br>
+<a href="/">Voltar</a>
+</body>
+</html>
