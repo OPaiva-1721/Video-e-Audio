@@ -31,3 +31,26 @@ build/
 
 ### VS Code ###
 .vscode/
+
+# Maven
+target/
+*.log
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+
+# Arquivos sensíveis
+application.properties
+
+# Diretórios de downloads
+downloads/
+
+# Arquivos temporários
+*.tmp
+*.bak
+*.swp
