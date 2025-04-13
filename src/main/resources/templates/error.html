@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Erro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-100 to-blue-100 min-h-screen flex items-center justify-center p-4">
+<div class="bg-white shadow-xl rounded-2xl p-8 max-w-md w-full">
+    <h1 class="text-2xl font-bold text-center text-red-600 mb-4">Ocorreu um Erro</h1>
+    <p class="text-center text-gray-700" th:text="${errorMessage}">Mensagem de erro aqui</p>
+    <div class="text-center mt-6">
+        <a href="/" class="text-blue-600 hover:underline font-semibold">Voltar</a>
+    </div>
+</div>
+</body>
+</html>
