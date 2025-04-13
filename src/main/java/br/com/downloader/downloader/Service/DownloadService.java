@@ -24,7 +24,7 @@ public class DownloadService {
 
     @Value("${ffmpeg.path}")
     private String ffmpegPath;
-/*
+
     @PostConstruct
     public void validatePaths() {
         if (!new File(ytDlpPath).exists()) {
@@ -37,7 +37,7 @@ public class DownloadService {
             throw new IllegalStateException("Não conseguiu criar diretório: " + outputDir);
         }
     }
-*/
+
     public File downloadFile(Download download) throws IOException, InterruptedException {
         String url = download.getUrl();
         String format = download.getFormat();
