@@ -5,29 +5,45 @@
     <title>Lista de Downloads</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gradient-to-br from-gray-100 to-blue-100 min-h-screen flex items-center justify-center p-4">
-<div class="bg-white shadow-xl rounded-2xl p-8 max-w-4xl w-full">
-    <h1 class="text-2xl font-bold text-center text-blue-600 mb-6">Lista de Downloads</h1>
-    <table class="w-full border-collapse border border-gray-300">
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+<div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-4xl">
+    <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">Lista de Downloads</h1>
+
+    <!-- Mensagem de erro -->
+    <div th:if="${errorMessage}" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded">
+        <p th:text="${errorMessage}"></p>
+    </div>
+
+    <!-- Tabela de downloads -->
+    <table class="w-full border-collapse">
         <thead>
-        <tr class="bg-blue-600 text-white">
-            <th class="border border-gray-300 p-2">ID</th>
-            <th class="border border-gray-300 p-2">URL</th>
-            <th class="border border-gray-300 p-2">Formato</th>
-            <th class="border border-gray-300 p-2">Caminho do Arquivo</th>
+        <tr class="bg-gray-200">
+            <th class="p-2 text-left text-sm font-medium text-gray-700">ID</th>
+            <th class="p-2 text-left text-sm font-medium text-gray-700">URL</th>
+            <th class="p-2 text-left text-sm font-medium text-gray-700">Formato</th>
+            <th class="p-2 text-left text-sm font-medium text-gray-700">Qualidade</th>
+            <th class="p-2 text-left text-sm font-medium text-gray-700">Caminho do Arquivo</th>
         </tr>
         </thead>
         <tbody>
-        <tr th:each="download : ${downloads}" class="hover:bg-gray-100">
-            <td class="border border-gray-300 p-2" th:text="${download.id}"></td>
-            <td class="border border-gray-300 p-2" th:text="${download.url}"></td>
-            <td class="border border-gray-300 p-2" th:text="${download.format}"></td>
-            <td class="border border-gray-300 p-2" th:text="${download.filePath}"></td>
+        <tr th:each="download : ${downloads}" class="border-t">
+            <td class="p-2 text-sm text-gray-600" th:text="${download.id}"></td>
+            <td class="p-2 text-sm text-gray-600" th:text="${download.url}"></td>
+            <td class="p-2 text-sm text-gray-600" th:text="${download.format}"></td>
+            <td class="p-2 text-sm text-gray-600" th:text="${download.quality}"></td>
+            <td class="p-2 text-sm text-gray-600" th:text="${download.filePath}"></td>
+        </tr>
+        <tr th:if="${#lists.isEmpty(downloads)}">
+            <td colspan="5" class="p-2 text-center text-sm text-gray-600">Nenhum download encontrado.</td>
         </tr>
         </tbody>
     </table>
-    <div class="text-center mt-6">
-        <a href="/" class="text-blue-600 hover:underline font-semibold">Voltar</a>
+
+    <!-- Botão de voltar -->
+    <div class="mt-6 text-center">
+        <a th:href="@{/}" class="inline-block bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition duration-200">
+            Voltar
+        </a>
     </div>
 </div>
 </body>
