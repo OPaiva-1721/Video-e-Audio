@@ -59,7 +59,7 @@ public class DownloadController {
             String outputFile = savePathFile.getAbsolutePath();
             System.out.println("Caminho de saída normalizado: " + outputFile);
 
-            String ytDlpPath = "C:\\Users\\GabryelPaivaNeves\\Documents\\yt-dlp.exe";
+            String ytDlpPath = "C:\\Users\\lidia\\Documents\\spring boot\\video-e-audio\\yt-dlp.exe";
             File ytDlpFile = new File(ytDlpPath);
             if (!ytDlpFile.exists()) {
                 throw new RuntimeException("yt-dlp.exe não encontrado em: " + ytDlpPath);
@@ -109,6 +109,7 @@ public class DownloadController {
                     case "360p" -> "bestvideo[height<=360]+bestaudio/best[height<=360]";
                     case "720p" -> "bestvideo[height<=720]+bestaudio/best[height<=720]";
                     case "1080p" -> "bestvideo[height<=1080]+bestaudio/best[height<=1080]";
+                    case "2160p" -> "bestvideo[height<=2160]+bestaudio/best[height<=2160]";
                     default -> "b"; // Usar -f b pra suprimir o aviso
                 };
                 command.add("-f");
@@ -142,7 +143,7 @@ public class DownloadController {
                 });
                 outputReader.start();
 
-                boolean finished = process.waitFor(30, TimeUnit.SECONDS);
+                boolean finished = process.waitFor(30, TimeUnit.MINUTES);
                 outputReader.join(1000);
 
                 if (!finished) {
