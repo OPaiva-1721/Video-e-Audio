@@ -2,7 +2,10 @@ package br.com.downloader.downloader.controller;
 
 import br.com.downloader.downloader.model.Download;
 import br.com.downloader.downloader.repository.DownloadRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -24,20 +27,32 @@ import java.io.InputStreamReader;
 
 @Controller
 public class DownloadController {
+    private static final Logger logger = LoggerFactory.getLogger(DownloadController.class);
 
     @Autowired
     private DownloadRepository downloadRepository;
 
+    @Value("${yt-dlp.path:/app/yt-dlp}")
+    private String ytDlpPath;
+
+    @Value("${ffmpeg.path:/app/ffmpeg}")
+    private String ffmpegPath;
+
+    @Value("${download.output.dir:/app/downloads}")
+    private String defaultOutputDir;
+
     @GetMapping("/")
     public String index(Model model) {
+        logger.info("Acessando página inicial");
         model.addAttribute("download", new Download());
         return "index";
     }
 
-    @PostMapping("/download")
-    public String download(@ModelAttribute Download download, Model model) {
+    @PostMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    @ResponseBody
+    public ResponseEntity<Resource> download(@RequestBody Download download) {
         try {
-            System.out.println("Iniciando download: " + download);
+            logger.info("Iniciando download: {}", download);
             String url = download.getUrl();
             String format = download.getFormat();
             String quality = download.getQuality();
@@ -51,55 +66,58 @@ public class DownloadController {
                 throw new IllegalArgumentException("Formato inválido: " + format);
             }
             if (savePath == null || savePath.trim().isEmpty()) {
-                throw new IllegalArgumentException("Caminho de salvamento não pode ser vazio");
+                savePath = "output." + format;
             }
 
             // Sanitizar e normalizar o savePath
-            File savePathFile = new File(savePath);
-            String outputFile = savePathFile.getAbsolutePath();
-            System.out.println("Caminho de saída normalizado: " + outputFile);
+            File saveDir = new File(defaultOutputDir);
+            if (!saveDir.exists()) {
+                saveDir.mkdirs();
+            }
+            String outputFile = new File(saveDir, savePath).getAbsolutePath();
+            logger.debug("Caminho de saída normalizado: {}", outputFile);
 
-            String ytDlpPath = "C:\\Users\\lidia\\Documents\\spring boot\\video-e-audio\\yt-dlp.exe";
+            // Verificar se yt-dlp e ffmpeg existem
             File ytDlpFile = new File(ytDlpPath);
+            File ffmpegFile = new File(ffmpegPath);
             if (!ytDlpFile.exists()) {
-                throw new RuntimeException("yt-dlp.exe não encontrado em: " + ytDlpPath);
+                logger.error("yt-dlp não encontrado em: {}", ytDlpPath);
+                throw new RuntimeException("yt-dlp não encontrado em: " + ytDlpPath);
             }
-
-            // Obter o diretório pai ou usar um padrão
-            File saveDir = savePathFile.getParentFile();
-            if (saveDir == null) {
-                System.out.println("saveDir é null, usando diretório padrão: C:\\Users\\lidia\\Downloads");
-                saveDir = new File("C:\\Users\\lidia\\Downloads");
-                outputFile = new File(saveDir, savePathFile.getName()).getAbsolutePath();
-                System.out.println("Novo caminho de saída: " + outputFile);
+            if (!ffmpegFile.exists()) {
+                logger.error("ffmpeg não encontrado em: {}", ffmpegPath);
+                throw new RuntimeException("ffmpeg não encontrado em: " + ffmpegPath);
             }
-
-            System.out.println("Diretório de salvamento: " + saveDir.getAbsolutePath());
 
             // Validar permissões do diretório
-            if (!saveDir.exists()) {
-                System.out.println("Criando diretório: " + saveDir.getAbsolutePath());
-                boolean created = saveDir.mkdirs();
-                if (!created) {
-                    throw new RuntimeException("Falha ao criar diretório: " + saveDir.getAbsolutePath());
-                }
-            }
             if (!saveDir.isDirectory()) {
+                logger.error("Caminho não é um diretório válido: {}", saveDir.getAbsolutePath());
                 throw new RuntimeException("Caminho não é um diretório válido: " + saveDir.getAbsolutePath());
             }
             if (!saveDir.canWrite()) {
+                logger.error("Sem permissão de escrita no diretório: {}", saveDir.getAbsolutePath());
                 throw new RuntimeException("Sem permissão de escrita no diretório: " + saveDir.getAbsolutePath());
             }
 
-            // Verificar e limpar arquivos .part travados
-            File partFile = new File(saveDir, savePathFile.getName() + ".part");
-            if (partFile.exists() && !partFile.delete()) {
-                System.out.println("Aviso: Não foi possível excluir arquivo .part existente: " + partFile.getAbsolutePath());
+            // Verificar espaço em disco
+            long freeSpace = saveDir.getFreeSpace();
+            long requiredSpace = 2_000_000_000L; // 2 GB
+            if (freeSpace < requiredSpace) {
+                logger.error("Espaço insuficiente: {} MB disponível, {} MB necessário", freeSpace / 1_000_000, requiredSpace / 1_000_000);
+                throw new RuntimeException("Espaço insuficiente no diretório: " + saveDir.getAbsolutePath());
             }
 
-            // Construir o comando como lista de argumentos
+            // Limpar arquivos .part
+            File partFile = new File(saveDir, savePath + ".part");
+            if (partFile.exists() && !partFile.delete()) {
+                logger.warn("Não foi possível excluir arquivo .part: {}", partFile.getAbsolutePath());
+            }
+
+            // Construir o comando
             List<String> command = new ArrayList<>();
             command.add(ytDlpPath);
+            command.add("--ffmpeg-location");
+            command.add(ffmpegPath);
             if (format.equals("mp3")) {
                 command.add("--extract-audio");
                 command.add("--audio-format");
@@ -110,7 +128,7 @@ public class DownloadController {
                     case "720p" -> "bestvideo[height<=720]+bestaudio/best[height<=720]";
                     case "1080p" -> "bestvideo[height<=1080]+bestaudio/best[height<=1080]";
                     case "2160p" -> "bestvideo[height<=2160]+bestaudio/best[height<=2160]";
-                    default -> "b"; // Usar -f b pra suprimir o aviso
+                    default -> "b";
                 };
                 command.add("-f");
                 command.add(qualityFilter);
@@ -119,7 +137,7 @@ public class DownloadController {
             command.add(outputFile);
             command.add(url);
 
-            System.out.println("Comando construído: " + String.join(" ", command));
+            logger.info("Comando construído: {}", String.join(" ", command));
 
             ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(saveDir);
@@ -135,9 +153,11 @@ public class DownloadController {
                     try (BufferedReader reader = new BufferedReader(new InputStreamReader(finalProcess.getInputStream()))) {
                         String line;
                         while ((line = reader.readLine()) != null) {
+                            logger.debug("yt-dlp output: {}", line);
                             output.append(line).append("\n");
                         }
                     } catch (IOException e) {
+                        logger.error("Erro ao ler saída: {}", e.getMessage());
                         output.append("Erro ao ler saída: ").append(e.getMessage()).append("\n");
                     }
                 });
@@ -148,29 +168,37 @@ public class DownloadController {
 
                 if (!finished) {
                     process.destroyForcibly();
+                    logger.error("Download demorou muito e foi cancelado");
                     throw new RuntimeException("Download demorou muito e foi cancelado. Saída: " + output);
                 }
 
                 int exitCode = process.exitValue();
-                System.out.println("Código de saída: " + exitCode);
-                System.out.println("Saída do yt-dlp: " + output);
+                logger.info("Código de saída: {}", exitCode);
+                logger.debug("Saída do yt-dlp: {}", output);
 
                 if (exitCode != 0) {
+                    logger.error("Erro ao baixar o arquivo. Código de saída: {}", exitCode);
                     throw new RuntimeException("Erro ao baixar o arquivo. Saída: " + output);
                 }
 
                 File file = new File(outputFile);
                 if (!file.exists()) {
+                    logger.error("Arquivo não foi criado: {}", outputFile);
                     throw new RuntimeException("Arquivo não foi criado: " + outputFile);
                 }
 
                 download.setFilePath(outputFile);
-                System.out.println("Salvando download no banco: " + download);
+                logger.info("Salvando download no banco: {}", download);
                 downloadRepository.save(download);
-                System.out.println("Download salvo com ID: " + download.getId());
+                logger.info("Download salvo com ID: {}", download.getId());
 
-                return "redirect:/download-file?filePath=" + URLEncoder.encode(file.getAbsolutePath(), StandardCharsets.UTF_8.toString());
+                Resource resource = new FileSystemResource(file);
+                return ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getName() + "\"")
+                        .body(resource);
             } catch (Exception e) {
+                logger.error("Erro durante o processamento do download: {}", e.getMessage(), e);
                 throw new RuntimeException("Erro durante o processamento do download: " + e.getMessage(), e);
             } finally {
                 if (process != null) {
@@ -178,22 +206,22 @@ public class DownloadController {
                 }
             }
         } catch (Exception e) {
-            System.err.println("Erro ao processar download: " + e.getMessage());
-            e.printStackTrace();
-            model.addAttribute("errorMessage", "Erro ao processar o download: " + e.getMessage());
-            model.addAttribute("download", new Download());
-            return "index";
+            logger.error("Erro ao processar download: {}", e.getMessage(), e);
+            throw new RuntimeException("Erro ao processar o download: " + e.getMessage(), e);
         }
     }
 
     @GetMapping("/download-file")
     public ResponseEntity<Resource> downloadFile(@RequestParam("filePath") String filePath) throws IOException {
+        logger.info("Solicitação para baixar arquivo: {}", filePath);
         File file = new File(filePath);
         if (!file.exists()) {
+            logger.error("Arquivo não encontrado: {}", filePath);
             throw new RuntimeException("Arquivo não encontrado: " + filePath);
         }
 
         Resource resource = new FileSystemResource(file);
+        logger.info("Enviando arquivo: {}, tamanho: {} bytes", file.getName(), file.length());
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getName() + "\"")
@@ -203,35 +231,34 @@ public class DownloadController {
     @GetMapping("/test-save")
     public String testSave(Model model) {
         try {
+            logger.info("Testando salvamento no banco de dados");
             Download download = new Download();
             download.setUrl("https://www.youtube.com/watch?v=test");
             download.setFormat("mp4");
             download.setQuality("720p");
-            download.setSavePath("C:\\Users\\lidia\\Documents\\spring boot\\video-e-audio\\test.mp4");
-            System.out.println("Salvando download de teste no banco...");
+            download.setSavePath(defaultOutputDir + "/test.mp4");
+            logger.info("Salvando download de teste no banco...");
             downloadRepository.save(download);
-            System.out.println("Download de teste salvo com ID: " + download.getId());
+            logger.info("Download de teste salvo com ID: {}", download.getId());
             model.addAttribute("message", "Registro salvo no banco com ID: " + download.getId());
             return "index";
         } catch (Exception e) {
+            logger.error("Erro ao salvar no banco: {}", e.getMessage(), e);
             model.addAttribute("errorMessage", "Erro ao salvar no banco: " + e.getMessage());
             return "index";
         }
     }
 
     @GetMapping("/downloads")
-    public String listDownloads(Model model) {
+    public ResponseEntity<List<Download>> listDownloads() {
         try {
-            System.out.println("Iniciando busca de downloads no banco MySQL...");
+            logger.info("Iniciando busca de downloads no banco MySQL...");
             List<Download> downloads = downloadRepository.findAll();
-            System.out.println("Downloads encontrados: " + downloads.size());
-            model.addAttribute("downloads", downloads);
-            return "downloads";
+            logger.info("Downloads encontrados: {}", downloads.size());
+            return ResponseEntity.ok(downloads);
         } catch (Exception e) {
-            System.err.println("Erro ao listar downloads: " + e.getMessage());
-            e.printStackTrace();
-            model.addAttribute("errorMessage", "Erro ao listar downloads: " + e.getMessage());
-            return "index";
+            logger.error("Erro ao listar downloads: {}", e.getMessage(), e);
+            throw new RuntimeException("Erro ao listar downloads: " + e.getMessage(), e);
         }
     }
 }
