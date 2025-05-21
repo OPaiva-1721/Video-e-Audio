@@ -4,21 +4,16 @@ import br.com.downloader.downloader.model.Download;
 import br.com.downloader.downloader.repository.DownloadRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Controller;
-import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -27,31 +22,27 @@ import java.io.InputStreamReader;
 
 @CrossOrigin(origins = "https://video-e-audio.netlify.app")
 @RestController
-public class DownloadController{
+@RequestMapping("/api")
+public class DownloadController {
     private static final Logger logger = LoggerFactory.getLogger(DownloadController.class);
 
-    @Autowired
-    private DownloadRepository downloadRepository;
+    private final DownloadRepository downloadRepository;
 
     @Value("${yt-dlp.path:/app/yt-dlp}")
     private String ytDlpPath;
 
-    @Value("${ffmpeg.path:/app/ffmpeg}")
+    @Value("${ffmpeg.path:/app/ffmpeg-bin}") // Corrige o caminho
     private String ffmpegPath;
 
     @Value("${download.output.dir:/app/downloads}")
     private String defaultOutputDir;
 
-    @GetMapping("/")
-    public String index(Model model) {
-        logger.info("Acessando página inicial");
-        model.addAttribute("download", new Download());
-        return "index";
+    public DownloadController(DownloadRepository downloadRepository) {
+        this.downloadRepository = downloadRepository;
     }
 
-    @PostMapping(value = "/download", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
-    @ResponseBody
-    public ResponseEntity<Resource> download(@RequestBody Download download) {
+    @PostMapping("/download")
+    public ResponseEntity<?> download(@RequestBody Download download) {
         try {
             logger.info("Iniciando download: {}", download);
             String url = download.getUrl();
@@ -61,60 +52,54 @@ public class DownloadController{
 
             // Validar entradas
             if (url == null || url.trim().isEmpty()) {
-                throw new IllegalArgumentException("URL não pode ser vazia");
+                return ResponseEntity.badRequest().body("URL não pode ser vazia");
             }
             if (format == null || (!format.equals("mp3") && !format.equals("mp4"))) {
-                throw new IllegalArgumentException("Formato inválido: " + format);
+                return ResponseEntity.badRequest().body("Formato inválido: " + format);
             }
             if (savePath == null || savePath.trim().isEmpty()) {
                 savePath = "output." + format;
             }
 
-            // Sanitizar e normalizar o savePath
             File saveDir = new File(defaultOutputDir);
             if (!saveDir.exists()) {
                 saveDir.mkdirs();
             }
             String outputFile = new File(saveDir, savePath).getAbsolutePath();
-            logger.debug("Caminho de saída normalizado: {}", outputFile);
+            logger.debug("Caminho de saída: {}", outputFile);
 
-            // Verificar se yt-dlp e ffmpeg existem
             File ytDlpFile = new File(ytDlpPath);
             File ffmpegFile = new File(ffmpegPath);
             if (!ytDlpFile.exists()) {
                 logger.error("yt-dlp não encontrado em: {}", ytDlpPath);
-                throw new RuntimeException("yt-dlp não encontrado em: " + ytDlpPath);
+                return ResponseEntity.status(500).body("yt-dlp não encontrado em: " + ytDlpPath);
             }
             if (!ffmpegFile.exists()) {
                 logger.error("ffmpeg não encontrado em: {}", ffmpegPath);
-                throw new RuntimeException("ffmpeg não encontrado em: " + ffmpegPath);
+                return ResponseEntity.status(500).body("ffmpeg não encontrado em: " + ffmpegPath);
             }
 
-            // Validar permissões do diretório
             if (!saveDir.isDirectory()) {
                 logger.error("Caminho não é um diretório válido: {}", saveDir.getAbsolutePath());
-                throw new RuntimeException("Caminho não é um diretório válido: " + saveDir.getAbsolutePath());
+                return ResponseEntity.status(500).body("Caminho não é um diretório válido: " + saveDir.getAbsolutePath());
             }
             if (!saveDir.canWrite()) {
                 logger.error("Sem permissão de escrita no diretório: {}", saveDir.getAbsolutePath());
-                throw new RuntimeException("Sem permissão de escrita no diretório: " + saveDir.getAbsolutePath());
+                return ResponseEntity.status(500).body("Sem permissão de escrita no diretório: " + saveDir.getAbsolutePath());
             }
 
-            // Verificar espaço em disco
             long freeSpace = saveDir.getFreeSpace();
-            long requiredSpace = 2_000_000_000L; // 2 GB
+            long requiredSpace = 2_000_000_000L;
             if (freeSpace < requiredSpace) {
                 logger.error("Espaço insuficiente: {} MB disponível, {} MB necessário", freeSpace / 1_000_000, requiredSpace / 1_000_000);
-                throw new RuntimeException("Espaço insuficiente no diretório: " + saveDir.getAbsolutePath());
+                return ResponseEntity.status(500).body("Espaço insuficiente no diretório: " + saveDir.getAbsolutePath());
             }
 
-            // Limpar arquivos .part
             File partFile = new File(saveDir, savePath + ".part");
             if (partFile.exists() && !partFile.delete()) {
                 logger.warn("Não foi possível excluir arquivo .part: {}", partFile.getAbsolutePath());
             }
 
-            // Construir o comando
             List<String> command = new ArrayList<>();
             command.add(ytDlpPath);
             command.add("--ffmpeg-location");
@@ -129,7 +114,7 @@ public class DownloadController{
                     case "720p" -> "bestvideo[height<=720]+bestaudio/best[height<=720]";
                     case "1080p" -> "bestvideo[height<=1080]+bestaudio/best[height<=1080]";
                     case "2160p" -> "bestvideo[height<=2160]+bestaudio/best[height<=2160]";
-                    default -> "b";
+                    default -> "best";
                 };
                 command.add("-f");
                 command.add(qualityFilter);
@@ -138,7 +123,7 @@ public class DownloadController{
             command.add(outputFile);
             command.add(url);
 
-            logger.info("Comando construído: {}", String.join(" ", command));
+            logger.info("Comando: {}", String.join(" ", command));
 
             ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(saveDir);
@@ -147,7 +132,6 @@ public class DownloadController{
 
             try {
                 process = builder.start();
-
                 StringBuilder output = new StringBuilder();
                 Process finalProcess = process;
                 Thread outputReader = new Thread(() -> {
@@ -164,13 +148,13 @@ public class DownloadController{
                 });
                 outputReader.start();
 
-                boolean finished = process.waitFor(30, TimeUnit.MINUTES);
+                boolean finished = process.waitFor(5, TimeUnit.MINUTES); // Reduz pra 5 min no free tier
                 outputReader.join(1000);
 
                 if (!finished) {
                     process.destroyForcibly();
                     logger.error("Download demorou muito e foi cancelado");
-                    throw new RuntimeException("Download demorou muito e foi cancelado. Saída: " + output);
+                    return ResponseEntity.status(500).body("Download demorou muito e foi cancelado. Saída: " + output);
                 }
 
                 int exitCode = process.exitValue();
@@ -179,13 +163,13 @@ public class DownloadController{
 
                 if (exitCode != 0) {
                     logger.error("Erro ao baixar o arquivo. Código de saída: {}", exitCode);
-                    throw new RuntimeException("Erro ao baixar o arquivo. Saída: " + output);
+                    return ResponseEntity.status(500).body("Erro ao baixar o arquivo. Saída: " + output);
                 }
 
                 File file = new File(outputFile);
                 if (!file.exists()) {
                     logger.error("Arquivo não foi criado: {}", outputFile);
-                    throw new RuntimeException("Arquivo não foi criado: " + outputFile);
+                    return ResponseEntity.status(500).body("Arquivo não foi criado: " + outputFile);
                 }
 
                 download.setFilePath(outputFile);
@@ -193,14 +177,10 @@ public class DownloadController{
                 downloadRepository.save(download);
                 logger.info("Download salvo com ID: {}", download.getId());
 
-                Resource resource = new FileSystemResource(file);
-                return ResponseEntity.ok()
-                        .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                        .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getName() + "\"")
-                        .body(resource);
+                return ResponseEntity.ok().body("{\"message\": \"Download started\", \"id\": \"" + download.getId() + "\"}");
             } catch (Exception e) {
                 logger.error("Erro durante o processamento do download: {}", e.getMessage(), e);
-                throw new RuntimeException("Erro durante o processamento do download: " + e.getMessage(), e);
+                return ResponseEntity.status(500).body("Erro durante o processamento do download: " + e.getMessage());
             } finally {
                 if (process != null) {
                     process.destroyForcibly();
@@ -208,7 +188,7 @@ public class DownloadController{
             }
         } catch (Exception e) {
             logger.error("Erro ao processar download: {}", e.getMessage(), e);
-            throw new RuntimeException("Erro ao processar o download: " + e.getMessage(), e);
+            return ResponseEntity.status(500).body("Erro ao processar o download: " + e.getMessage());
         }
     }
 
@@ -218,7 +198,7 @@ public class DownloadController{
         File file = new File(filePath);
         if (!file.exists()) {
             logger.error("Arquivo não encontrado: {}", filePath);
-            throw new RuntimeException("Arquivo não encontrado: " + filePath);
+            return ResponseEntity.status(404).body(null);
         }
 
         Resource resource = new FileSystemResource(file);
@@ -227,27 +207,6 @@ public class DownloadController{
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + file.getName() + "\"")
                 .body(resource);
-    }
-
-    @GetMapping("/test-save")
-    public String testSave(Model model) {
-        try {
-            logger.info("Testando salvamento no banco de dados");
-            Download download = new Download();
-            download.setUrl("https://www.youtube.com/watch?v=test");
-            download.setFormat("mp4");
-            download.setQuality("720p");
-            download.setSavePath(defaultOutputDir + "/test.mp4");
-            logger.info("Salvando download de teste no banco...");
-            downloadRepository.save(download);
-            logger.info("Download de teste salvo com ID: {}", download.getId());
-            model.addAttribute("message", "Registro salvo no banco com ID: " + download.getId());
-            return "index";
-        } catch (Exception e) {
-            logger.error("Erro ao salvar no banco: {}", e.getMessage(), e);
-            model.addAttribute("errorMessage", "Erro ao salvar no banco: " + e.getMessage());
-            return "index";
-        }
     }
 
     @GetMapping("/downloads")
@@ -259,7 +218,7 @@ public class DownloadController{
             return ResponseEntity.ok(downloads);
         } catch (Exception e) {
             logger.error("Erro ao listar downloads: {}", e.getMessage(), e);
-            throw new RuntimeException("Erro ao listar downloads: " + e.getMessage(), e);
+            return ResponseEntity.status(500).body(null);
         }
     }
 }
