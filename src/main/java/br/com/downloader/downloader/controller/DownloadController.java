@@ -19,12 +19,16 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @CrossOrigin(origins = "https://video-e-audio.netlify.app")
 @RestController
 @RequestMapping("/api")
 public class DownloadController {
     private static final Logger logger = LoggerFactory.getLogger(DownloadController.class);
+    private static final AtomicInteger requestCount = new AtomicInteger(0);
+    private static final long REQUEST_LIMIT = 5; // Limite de 5 requisições por minuto
+    private static final long DELAY_MS = 10000; // 10 segundos entre requisições
 
     private final DownloadRepository downloadRepository;
 
@@ -42,8 +46,14 @@ public class DownloadController {
     }
 
     @PostMapping("/download")
-    public ResponseEntity<?> download(@RequestBody Download download) {
+    public ResponseEntity<?> download(@RequestBody Download download) throws InterruptedException {
+        int currentCount = requestCount.incrementAndGet();
         try {
+            if (currentCount > REQUEST_LIMIT) {
+                logger.warn("Limite de requisições atingido: {}", currentCount);
+                return ResponseEntity.status(429).body("Limite de requisições atingido. Tente novamente em um minuto.");
+            }
+
             logger.info("Iniciando download: {}", download);
             String url = download.getUrl();
             String format = download.getFormat();
@@ -99,7 +109,7 @@ public class DownloadController {
                 logger.warn("Não foi possível excluir arquivo .part: {}", partFile.getAbsolutePath());
             }
 
-            // Testar acessibilidade do vídeo com um comando leve
+            // Testar acessibilidade do vídeo
             List<String> testCommand = new ArrayList<>();
             testCommand.add(ytDlpPath);
             testCommand.add("--skip-download");
@@ -115,12 +125,15 @@ public class DownloadController {
                     testOutput.append(line).append("\n");
                 }
             }
-            boolean testFinished = testProcess.waitFor(1, TimeUnit.MINUTES); // Retorna boolean
+            boolean testFinished = testProcess.waitFor(1, TimeUnit.MINUTES);
             if (!testFinished || testOutput.toString().contains("ERROR")) {
                 logger.error("Vídeo não acessível: {}. Saída: {}", url, testOutput);
                 return ResponseEntity.status(400).body("Este vídeo não está disponível ou excedeu o limite de requisições. Saída: " + testOutput);
             }
             testProcess.destroy();
+
+            // Delay entre requisições
+            Thread.sleep(DELAY_MS);
 
             List<String> command = new ArrayList<>();
             command.add(ytDlpPath);
@@ -211,6 +224,16 @@ public class DownloadController {
         } catch (Exception e) {
             logger.error("Erro ao processar download: {}", e.getMessage(), e);
             return ResponseEntity.status(500).body("Erro ao processar o download: " + e.getMessage());
+        } finally {
+            // Resetar contador a cada minuto (simplificado)
+            new Thread(() -> {
+                try {
+                    Thread.sleep(60000);
+                    requestCount.set(0);
+                } catch (InterruptedException e) {
+                    logger.error("Erro no reset do contador: {}", e.getMessage());
+                }
+            }).start();
         }
     }
 
