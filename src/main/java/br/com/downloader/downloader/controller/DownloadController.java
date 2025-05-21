@@ -31,7 +31,7 @@ public class DownloadController {
     @Value("${yt-dlp.path:/app/yt-dlp}")
     private String ytDlpPath;
 
-    @Value("${ffmpeg.path:/app/ffmpeg-bin}") // Corrige o caminho
+    @Value("${ffmpeg.path:/app/ffmpeg-bin}")
     private String ffmpegPath;
 
     @Value("${download.output.dir:/app/downloads}")
@@ -50,7 +50,6 @@ public class DownloadController {
             String quality = download.getQuality();
             String savePath = download.getSavePath();
 
-            // Validar entradas
             if (url == null || url.trim().isEmpty()) {
                 return ResponseEntity.badRequest().body("URL não pode ser vazia");
             }
@@ -148,7 +147,7 @@ public class DownloadController {
                 });
                 outputReader.start();
 
-                boolean finished = process.waitFor(5, TimeUnit.MINUTES); // Reduz pra 5 min no free tier
+                boolean finished = process.waitFor(5, TimeUnit.MINUTES);
                 outputReader.join(1000);
 
                 if (!finished) {
