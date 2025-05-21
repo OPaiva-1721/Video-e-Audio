@@ -25,8 +25,9 @@ import java.util.concurrent.TimeUnit;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 
-@Controller
-public class DownloadController {
+@CrossOrigin(origins = "https://video-e-audio.netlify.app")
+@RestController
+public class DownloadController{
     private static final Logger logger = LoggerFactory.getLogger(DownloadController.class);
 
     @Autowired
