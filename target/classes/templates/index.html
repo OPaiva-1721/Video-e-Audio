@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="pt-BR" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>YouTube Downloader</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+<div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+    <h1 class="text-2xl font-bold text-center text-gray-800 mb-6">YouTube Downloader</h1>
+
+    <!-- Mensagem de erro -->
+    <div th:if="${errorMessage}" class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 rounded">
+        <p th:text="${errorMessage}"></p>
+    </div>
+
+    <!-- Mensagem de sucesso -->
+    <div th:if="${message}" class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mb-4 rounded">
+        <p th:text="${message}"></p>
+    </div>
+
+    <!-- Formulário -->
+    <form th:action="@{/download}" th:object="${download}" method="post" class="space-y-4" onsubmit="return validateForm(this)">
+        <!-- URL -->
+        <div>
+            <label for="url" class="block text-sm font-medium text-gray-700">Link do YouTube</label>
+            <input type="text" id="url" th:field="*{url}" required
+                   class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                   placeholder="https://www.youtube.com/watch?v=...">
+        </div>
+
+        <!-- Formato -->
+        <div>
+            <label for="format" class="block text-sm font-medium text-gray-700">Formato</label>
+            <select id="format" th:field="*{format}" required
+                    class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    onchange="toggleQualityField(this); updateSavePath()">
+                <option value="mp4">MP4 (Vídeo)</option>
+                <option value="mp3">MP3 (Áudio)</option>
+            </select>
+        </div>
+
+        <!-- Qualidade -->
+        <div>
+            <label for="quality" class="block text-sm font-medium text-gray-700">Qualidade do Vídeo</label>
+            <select id="quality" th:field="*{quality}" required
+                    class="mt-1 block w-full p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="best">Melhor disponível</option>
+                <option value="2160p">4k</option>
+                <option value="1080p">1080p</option>
+                <option value="720p">720p</option>
+                <option value="360p">360p</option>
+            </select>
+        </div>
+
+        <!-- Caminho de Salvamento -->
+        <div>
+            <label for="savePath" class="block text-sm font-medium text-gray-700">Caminho de Salvamento</label>
+            <div class="flex space-x-2">
+                <input type="text" id="savePath" th:field="*{savePath}" required
+                       class="mt-1 block flex-1 p-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                       placeholder="Ex: C:\Users\lidia\Downloads\teste.mp4">
+                <button type="button" onclick="document.getElementById('directoryPicker').click()"
+                        class="mt-1 p-2 bg-gray-200 rounded-md hover:bg-gray-300 transition duration-200 text-sm">
+                    Escolher Pasta
+                </button>
+                <input type="file" id="directoryPicker" webkitdirectory directory hidden
+                       onchange="updateSavePathFromPicker(this)">
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Escolha uma pasta pra salvar o arquivo ou digite o caminho completo com o nome do arquivo.</p>
+        </div>
+
+        <!-- Botão de Submit -->
+        <button type="submit"
+                class="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition duration-200">
+            Baixar
+        </button>
+    </form>
+
+    <!-- Link para lista de downloads -->
+    <div class="mt-4 text-center">
+        <a th:href="@{/downloads}" class="text-blue-600 hover:underline">Ver todos os downloads</a>
+    </div>
+</div>
+
+<!-- Script para gerenciar file picker e qualidade -->
+<script>
+    function toggleQualityField(select) {
+        const qualityField = document.getElementById('quality');
+        qualityField.disabled = select.value === 'mp3';
+        if (select.value === 'mp3') {
+            qualityField.value = 'best';
+        }
+        updateSavePath();
+    }
+
+    function updateSavePathFromPicker(input) {
+        const savePathField = document.getElementById('savePath');
+        const formatSelect = document.getElementById('format');
+        if (input.files && input.files.length > 0) {
+            const file = input.files[0];
+            // Tentar obter o caminho absoluto
+            let dirPath = file.path ? file.path.split(file.name)[0] : file.webkitRelativePath.split('/')[0];
+            // Corrigir barras e garantir caminho absoluto
+            dirPath = dirPath.replace(/\//g, '\\').replace(/^\\+/, '');
+            // Se o caminho não começar com uma letra de unidade (ex.: C:), usar padrão
+            if (!/^[A-Za-z]:/.test(dirPath)) {
+                dirPath = 'C:\\Users\\lidia\\Downloads\\' + dirPath;
+            }
+            const format = formatSelect.value;
+            const defaultFileName = `output.${format}`;
+            const fullPath = `${dirPath}${defaultFileName}`;
+            console.log('Caminho gerado pelo file picker:', fullPath);
+            savePathField.value = fullPath;
+        }
+    }
+
+    function updateSavePath() {
+        const savePathField = document.getElementById('savePath');
+        const formatSelect = document.getElementById('format');
+        const currentPath = savePathField.value;
+        const format = formatSelect.value;
+        const defaultFileName = `output.${format}`;
+
+        if (currentPath) {
+            const dir = currentPath.substring(0, currentPath.lastIndexOf('\\') + 1) ||
+                        currentPath.substring(0, currentPath.lastIndexOf('/') + 1);
+            const newPath = dir ? `${dir}${defaultFileName}` : `C:\\Users\\lidia\\Downloads\\${defaultFileName}`;
+            console.log('Caminho atualizado:', newPath);
+            savePathField.value = newPath;
+        } else {
+            console.log('Caminho padrão:', defaultFileName);
+            savePathField.value = `C:\\Users\\lidia\\Downloads\\${defaultFileName}`;
+        }
+    }
+
+    function validateForm(form) {
+        const savePath = form.savePath.value;
+        console.log('Validando savePath:', savePath);
+        if (!savePath.includes('\\') && !savePath.includes('/')) {
+            alert('Por favor, informe um caminho completo (ex.: C:\\Users\\lidia\\Downloads\\teste.mp4) ou use o seletor de pasta.');
+            return false;
+        }
+        console.log('Formulário válido, enviando:', {url: form.url.value, format: form.format.value, quality: form.quality.value, savePath: savePath});
+        return true;
+    }
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+br\com\downloader\downloader\controller\ErrorController.class
+br\com\downloader\downloader\VideoEAudioApplication.class
+br\com\downloader\downloader\Service\DownloadService.class
+br\com\downloader\downloader\repository\DownloadRepository.class
+br\com\downloader\downloader\controller\DownloadController.class
+br\com\downloader\downloader\model\Download.class
