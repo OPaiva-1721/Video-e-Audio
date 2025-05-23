@@ -15,8 +15,19 @@ RUN apt-get update && \
 RUN pip3 install --no-cache-dir yt-dlp
 
 # Verificar instalação
-RUN which yt-dlp && \
-    which ffmpeg
+RUN echo "--- Verificando yt-dlp --- " && \
+    which yt-dlp && \
+    ls -l $(which yt-dlp) && \
+    echo "PATH atual: $PATH" && \
+    echo "--- Testando execução yt-dlp --- " && \
+    yt-dlp --version && \
+    echo "--- Verificação yt-dlp concluída ---"
+# ----> FIM DAS LINHAS DE DEBUG <----
+
+# Verificar ffmpeg (opcional, mas bom ter)
+RUN which ffmpeg && \
+    ls -l $(which ffmpeg)
+
 
 WORKDIR /app
 
