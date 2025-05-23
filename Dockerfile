@@ -27,6 +27,9 @@ RUN mkdir -p /app/downloads
 # Copiar o JAR buildado do stage anterior
 COPY --from=build /build/target/*.jar app.jar
 
+# Copiar o certificado CA necessário para o TiDB Cloud
+COPY ca.pem /app/ca.pem
+
 # Expor a porta da aplicação
 EXPOSE 8080
 
