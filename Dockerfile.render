@@ -1,0 +1,34 @@
+FROM openjdk:17-jdk-slim
+
+# Instalar dependências com flags para evitar prompts interativos
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    curl \
+    python3 \
+    python3-pip \
+    ffmpeg \
+    ca-certificates && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Instalar yt-dlp via pip (mais confiável que o download direto )
+RUN pip3 install --no-cache-dir yt-dlp
+
+# Verificar instalação
+RUN which yt-dlp && \
+    which ffmpeg
+
+WORKDIR /app
+
+# Criar diretório de downloads com permissões adequadas
+RUN mkdir -p /app/downloads && \
+    chmod 777 /app/downloads
+
+# Copiar JAR e configurações
+COPY target/*.jar app.jar
+
+# Expor porta
+EXPOSE 8080
+
+# Comando de inicialização
+CMD ["java", "-jar", "app.jar"]
