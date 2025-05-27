@@ -31,7 +31,7 @@ COPY --from=build /build/target/*.jar app.jar
 COPY ca.pem /app/ca.pem
 
 # Expor a porta da aplicação
-EXPOSE 8080
+EXPOSE 10000
 
 # Definir o comando de inicialização
 CMD ["java", "-jar", "app.jar"]
