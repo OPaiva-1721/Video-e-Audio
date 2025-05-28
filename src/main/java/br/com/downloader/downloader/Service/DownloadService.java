@@ -270,7 +270,3 @@ public class DownloadService {
             return "bestvideo[" + heightFilter + "][ext=mp4]+bestaudio[ext=m4a]/best[" + heightFilter + "][ext=mp4]/best";
         }
     }
-
-
-::contentReference[oaicite:0]{index=0}
- 
