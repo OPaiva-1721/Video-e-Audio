@@ -1,8 +1,7 @@
-package br.com.downloader.downloader.service;
+package br.com.downloader.downloader.Service;
 
 import br.com.downloader.downloader.model.Download;
 import br.com.downloader.downloader.repository.DownloadRepository;
-import br.com.downloader.downloader.websocket.DownloadProgressMessage;
 import br.com.downloader.downloader.websocket.ProgressNotificationService;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -121,9 +120,7 @@ public class DownloadService {
         download.setStatus("Processando");
         download.setProgress(0);
         downloadRepository.save(download);
-
-        notifyProgress(download);
-
+        
         List<String> command = buildDownloadCommand(format, quality, outputFilePath.toString(), url);
         logger.info("Comando executado: {}", String.join(" ", command));
 
@@ -147,7 +144,6 @@ public class DownloadService {
 
                             download.setProgress(progressInt);
                             downloadRepository.save(download);
-                            notifyProgress(download);
                         } catch (NumberFormatException e) {
                             logger.warn("Erro ao parsear progresso: {}", e.getMessage());
                         }
@@ -172,7 +168,6 @@ public class DownloadService {
             download.setStatus("Erro");
             download.setProgress(0);
             downloadRepository.save(download);
-            notifyProgress(download);
             throw new RuntimeException("Download demorou muito e foi cancelado");
         }
 
@@ -182,7 +177,6 @@ public class DownloadService {
         if (exitCode != 0) {
             download.setStatus("Erro");
             downloadRepository.save(download);
-            notifyProgress(download);
             throw new RuntimeException("Erro no yt-dlp, exit code " + exitCode);
         }
 
@@ -190,14 +184,12 @@ public class DownloadService {
         if (!file.exists()) {
             download.setStatus("Erro");
             downloadRepository.save(download);
-            notifyProgress(download);
             throw new RuntimeException("Arquivo não criado: " + outputFilePath);
         }
 
         download.setStatus("Concluído");
         download.setProgress(100);
         downloadRepository.save(download);
-        notifyProgress(download);
 
         logger.info("Download concluído: URL={}, Format={}, FilePath={}", download.getUrl(), download.getFormat(), download.getFilePath());
         return CompletableFuture.completedFuture(file);
