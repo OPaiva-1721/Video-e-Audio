@@ -23,6 +23,7 @@ RUN mkdir -p /app/downloads
 
 COPY --from=build /build/target/*.jar app.jar
 COPY ca.pem /app/ca.pem
+COPY cookies.txt /app/cookies.txt
 
 # VARIÁVEIS PARA O SPRING
 ENV yt-dlp.path=/usr/local/bin/yt-dlp
