@@ -109,13 +109,14 @@ public class DownloadService {
         String videoTitle;
         try {
             videoTitle = getVideoTitle(url);
-            videoTitle = videoTitle.replaceAll("[^a-zA-Z0-9\\.\\-]", "_");
+            videoTitle = videoTitle.replaceAll("[^a-zA-Z0-9\\.\\-_]", "_");
         } catch (Exception e) {
             logger.warn("Não foi possível obter o título do vídeo, usando timestamp: {}", e.getMessage());
             videoTitle = "video_" + System.currentTimeMillis();
         }
 
-        String fileName = videoTitle + "." + format;
+        String baseName = (videoTitle == null || videoTitle.isBlank()) ? "video_" + System.currentTimeMillis() : videoTitle;
+        String fileName = baseName + "." + format;
         Path outputFilePath = Paths.get(outputDir, fileName);
 
         download.setFileName(fileName);
@@ -123,7 +124,7 @@ public class DownloadService {
         download.setStatus("Processando");
         download.setProgress(0);
         downloadRepository.save(download);
-        
+
         List<String> command = buildDownloadCommand(format, quality, outputFilePath.toString(), url);
         logger.info("Comando executado: {}", String.join(" ", command));
 
@@ -144,7 +145,6 @@ public class DownloadService {
                         try {
                             double progressValue = Double.parseDouble(progressMatcher.group(1));
                             int progressInt = (int) Math.round(progressValue);
-
                             download.setProgress(progressInt);
                             downloadRepository.save(download);
                         } catch (NumberFormatException e) {
@@ -157,6 +157,7 @@ public class DownloadService {
                         String extractedFileName = filenameMatcher.group(1);
                         Path path = Paths.get(extractedFileName);
                         download.setFileName(path.getFileName().toString());
+                        download.setFilePath(path.toString());
                         downloadRepository.save(download);
                     }
                 }
@@ -177,17 +178,17 @@ public class DownloadService {
         int exitCode = process.exitValue();
         logger.info("Exit code do yt-dlp: {}", exitCode);
 
-        if (exitCode != 0) {
-            download.setStatus("Erro");
-            downloadRepository.save(download);
-            throw new RuntimeException("Erro no yt-dlp, exit code " + exitCode);
-        }
-
         File file = outputFilePath.toFile();
         if (!file.exists()) {
             download.setStatus("Erro");
             downloadRepository.save(download);
             throw new RuntimeException("Arquivo não criado: " + outputFilePath);
+        }
+
+        if (exitCode != 0) {
+            download.setStatus("Erro");
+            downloadRepository.save(download);
+            throw new RuntimeException("Erro no yt-dlp, exit code " + exitCode);
         }
 
         download.setStatus("Concluído");
@@ -205,7 +206,6 @@ public class DownloadService {
         command.add(ffmpegPath);
         command.add("--newline");
 
-        // Formato de mídia
         switch (format) {
             case "mp3":
                 command.add("--extract-audio");
@@ -233,14 +233,11 @@ public class DownloadService {
                 break;
         }
 
-        // Caminho de saída
         command.add("-o");
         command.add(outputFile);
 
-        // URL do vídeo
         command.add(url);
 
-        // Cookies para autenticação (se existir o arquivo)
         if (Files.exists(Paths.get(ytDlpCookiesPath))) {
             command.add("--cookies");
             command.add(ytDlpCookiesPath);
