@@ -40,6 +40,9 @@ public class DownloadService {
     @Value("${ffmpeg.path}")
     private String ffmpegPath;
 
+    @Value("${yt-dlp.cookies.path:/app/cookies.txt}")
+    private String ytDlpCookiesPath;
+
     private final ProgressNotificationService notificationService;
     private final DownloadRepository downloadRepository;
 
@@ -202,6 +205,7 @@ public class DownloadService {
         command.add(ffmpegPath);
         command.add("--newline");
 
+        // Formato de mídia
         switch (format) {
             case "mp3":
                 command.add("--extract-audio");
@@ -220,28 +224,27 @@ public class DownloadService {
                 break;
             case "webm":
                 command.add("-f");
-                if (quality != null && !quality.equals("best")) {
-                    String qualityFilter = getQualityFilter(quality, "webm");
-                    command.add(qualityFilter);
-                } else {
-                    command.add("bestvideo[ext=webm]+bestaudio[ext=webm]/best[ext=webm]/best");
-                }
+                command.add(getQualityFilter(quality, "webm"));
                 break;
             case "mp4":
             default:
                 command.add("-f");
-                if (quality != null && !quality.equals("best")) {
-                    String qualityFilter = getQualityFilter(quality, "mp4");
-                    command.add(qualityFilter);
-                } else {
-                    command.add("bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best");
-                }
+                command.add(getQualityFilter(quality, "mp4"));
                 break;
         }
 
+        // Caminho de saída
         command.add("-o");
         command.add(outputFile);
+
+        // URL do vídeo
         command.add(url);
+
+        // Cookies para autenticação (se existir o arquivo)
+        if (Files.exists(Paths.get(ytDlpCookiesPath))) {
+            command.add("--cookies");
+            command.add(ytDlpCookiesPath);
+        }
 
         return command;
     }
