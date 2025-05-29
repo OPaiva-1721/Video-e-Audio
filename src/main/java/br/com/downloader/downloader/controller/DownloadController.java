@@ -22,7 +22,13 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
-@CrossOrigin(origins = "https://front-video-e-audio-4xzy.vercel.app")
+@CrossOrigin(
+    origins = "https://front-video-e-audio-4xzy.vercel.app",
+    allowedHeaders = "*",
+    methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE},
+    allowCredentials = "true"
+)
+
 @RestController
 @RequestMapping("/api")
 public class DownloadController {
