@@ -8,6 +8,8 @@ RUN mvn dependency:go-offline
 COPY src ./src
 RUN mvn package -DskipTests
 
+./validate-cookies.sh || exit 1
+
 # Stage 2: Runtime
 FROM openjdk:17-jdk-slim
 WORKDIR /app
