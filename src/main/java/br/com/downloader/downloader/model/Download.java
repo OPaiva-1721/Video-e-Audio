@@ -26,7 +26,5 @@ public class Download {
     private String status;
     private Integer progress;
     private String fileName;
-
-    // Novo campo para permitir diretório personalizado
-    private String customDir;
+    private String customDir; // ← novo campo
 }
