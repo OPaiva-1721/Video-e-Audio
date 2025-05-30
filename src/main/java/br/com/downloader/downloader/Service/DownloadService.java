@@ -101,103 +101,126 @@ public class DownloadService {
     }
 
     @Async
-    public CompletableFuture<File> downloadFileAsync(Download download) throws IOException, InterruptedException {
-        String url = download.getUrl();
-        String format = download.getFormat();
-        String quality = download.getQuality();
+public CompletableFuture<File> downloadFileAsync(Download download, String chosenDir) {
+    String url = download.getUrl();
+    String format = download.getFormat();
+    String quality = download.getQuality();
 
-        String videoTitle;
-        try {
-            videoTitle = getVideoTitle(url);
-            videoTitle = videoTitle.replaceAll("[^a-zA-Z0-9\\.\\-_]", "_");
-        } catch (Exception e) {
-            logger.warn("Não foi possível obter o título do vídeo, usando timestamp: {}", e.getMessage());
-            videoTitle = "video_" + System.currentTimeMillis();
-        }
+    // Garantir que o diretório existe
+    File dir = new File(chosenDir);
+    if (!dir.exists()) {
+        dir.mkdirs();
+    }
 
-        String baseName = (videoTitle == null || videoTitle.isBlank()) ? "video_" + System.currentTimeMillis() : videoTitle;
-        String fileName = baseName + "." + format;
-        Path outputFilePath = Paths.get(outputDir, fileName);
+    String videoTitle;
+    try {
+        videoTitle = getVideoTitle(url);
+        videoTitle = videoTitle.replaceAll("[^a-zA-Z0-9\\.\\-_]", "_");
+    } catch (Exception e) {
+        logger.warn("Não foi possível obter o título do vídeo, usando timestamp: {}", e.getMessage());
+        videoTitle = "video_" + System.currentTimeMillis();
+    }
 
-        download.setFileName(fileName);
-        download.setFilePath(outputFilePath.toString());
-        download.setStatus("Processando");
-        download.setProgress(0);
+    String baseName = (videoTitle == null || videoTitle.isBlank()) ? "video_" + System.currentTimeMillis() : videoTitle;
+    String fileName = baseName + "." + format;
+    Path outputFilePath = Paths.get(chosenDir, fileName);
+
+    download.setFileName(fileName);
+    download.setFilePath(outputFilePath.toString());
+    download.setStatus("Processando");
+    download.setProgress(0);
+    downloadRepository.save(download);
+
+    List<String> command = buildDownloadCommand(format, quality, outputFilePath.toString(), url);
+    logger.info("Comando executado: {}", String.join(" ", command));
+
+    ProcessBuilder builder = new ProcessBuilder(command);
+    builder.directory(dir); // ← usando o diretório correto aqui
+    builder.redirectErrorStream(true);
+    Process process;
+    try {
+        process = builder.start();
+    } catch (IOException e) {
+        download.setStatus("Erro");
         downloadRepository.save(download);
+        throw new RuntimeException("Falha ao iniciar o processo de download: " + e.getMessage());
+    }
 
-        List<String> command = buildDownloadCommand(format, quality, outputFilePath.toString(), url);
-        logger.info("Comando executado: {}", String.join(" ", command));
+    CompletableFuture<Void> progressMonitor = CompletableFuture.runAsync(() -> {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                logger.debug("yt-dlp output: {}", line);
 
-        ProcessBuilder builder = new ProcessBuilder(command);
-        builder.directory(new File(outputDir));
-        builder.redirectErrorStream(true);
-        Process process = builder.start();
-
-        CompletableFuture<Void> progressMonitor = CompletableFuture.runAsync(() -> {
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    logger.debug("yt-dlp output: {}", line);
-
-                    Matcher progressMatcher = PROGRESS_PATTERN.matcher(line);
-                    if (progressMatcher.find()) {
-                        try {
-                            double progressValue = Double.parseDouble(progressMatcher.group(1));
-                            int progressInt = (int) Math.round(progressValue);
-                            download.setProgress(progressInt);
-                            downloadRepository.save(download);
-                        } catch (NumberFormatException e) {
-                            logger.warn("Erro ao parsear progresso: {}", e.getMessage());
-                        }
-                    }
-
-                    Matcher filenameMatcher = FILENAME_PATTERN.matcher(line);
-                    if (filenameMatcher.find()) {
-                        String extractedFileName = filenameMatcher.group(1);
-                        Path path = Paths.get(extractedFileName);
-                        download.setFileName(path.getFileName().toString());
-                        download.setFilePath(path.toString());
+                Matcher progressMatcher = PROGRESS_PATTERN.matcher(line);
+                if (progressMatcher.find()) {
+                    try {
+                        double progressValue = Double.parseDouble(progressMatcher.group(1));
+                        int progressInt = (int) Math.round(progressValue);
+                        download.setProgress(progressInt);
                         downloadRepository.save(download);
+                    } catch (NumberFormatException e) {
+                        logger.warn("Erro ao parsear progresso: {}", e.getMessage());
                     }
                 }
-            } catch (IOException e) {
-                logger.error("Erro ao ler saída do processo: {}", e.getMessage());
+
+                Matcher filenameMatcher = FILENAME_PATTERN.matcher(line);
+                if (filenameMatcher.find()) {
+                    String extractedFileName = filenameMatcher.group(1);
+                    Path path = Paths.get(extractedFileName);
+                    download.setFileName(path.getFileName().toString());
+                    download.setFilePath(path.toString());
+                    downloadRepository.save(download);
+                }
             }
-        });
-
-        boolean finished = process.waitFor(10, TimeUnit.MINUTES);
-        if (!finished) {
-            process.destroyForcibly();
-            download.setStatus("Erro");
-            download.setProgress(0);
-            downloadRepository.save(download);
-            throw new RuntimeException("Download demorou muito e foi cancelado");
+        } catch (IOException e) {
+            logger.error("Erro ao ler saída do processo: {}", e.getMessage());
         }
+    });
 
-        int exitCode = process.exitValue();
-        logger.info("Exit code do yt-dlp: {}", exitCode);
-
-        File file = outputFilePath.toFile();
-        if (!file.exists()) {
-            download.setStatus("Erro");
-            downloadRepository.save(download);
-            throw new RuntimeException("Arquivo não criado: " + outputFilePath);
-        }
-
-        if (exitCode != 0) {
-            download.setStatus("Erro");
-            downloadRepository.save(download);
-            throw new RuntimeException("Erro no yt-dlp, exit code " + exitCode);
-        }
-
-        download.setStatus("Concluído");
-        download.setProgress(100);
+    boolean finished;
+    try {
+        finished = process.waitFor(10, TimeUnit.MINUTES);
+    } catch (InterruptedException e) {
+        process.destroyForcibly();
+        download.setStatus("Erro");
+        download.setProgress(0);
         downloadRepository.save(download);
-
-        logger.info("Download concluído: URL={}, Format={}, FilePath={}", download.getUrl(), download.getFormat(), download.getFilePath());
-        return CompletableFuture.completedFuture(file);
+        throw new RuntimeException("Download interrompido: " + e.getMessage());
     }
+
+    if (!finished) {
+        process.destroyForcibly();
+        download.setStatus("Erro");
+        download.setProgress(0);
+        downloadRepository.save(download);
+        throw new RuntimeException("Download demorou muito e foi cancelado");
+    }
+
+    int exitCode = process.exitValue();
+    logger.info("Exit code do yt-dlp: {}", exitCode);
+
+    File file = outputFilePath.toFile();
+    if (!file.exists()) {
+        download.setStatus("Erro");
+        downloadRepository.save(download);
+        throw new RuntimeException("Arquivo não criado: " + outputFilePath);
+    }
+
+    if (exitCode != 0) {
+        download.setStatus("Erro");
+        downloadRepository.save(download);
+        throw new RuntimeException("Erro no yt-dlp, exit code " + exitCode);
+    }
+
+    download.setStatus("Concluído");
+    download.setProgress(100);
+    downloadRepository.save(download);
+
+    logger.info("Download concluído: URL={}, Format={}, FilePath={}", download.getUrl(), download.getFormat(), download.getFilePath());
+    return CompletableFuture.completedFuture(file);
+}
 
     private List<String> buildDownloadCommand(String format, String quality, String outputFile, String url) {
         List<String> command = new ArrayList<>();
