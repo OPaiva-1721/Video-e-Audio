@@ -56,116 +56,103 @@ public class DownloadController {
     }
 
     @PostMapping("/download")
-    public ResponseEntity<?> download(@RequestBody Download download) throws InterruptedException {
-        synchronized (DownloadController.class) {
-            long currentTime = System.currentTimeMillis();
-            if (currentTime - lastRequestTime < DELAY_MS) {
-                long waitTime = DELAY_MS - (currentTime - lastRequestTime);
-                logger.info("Aguardando {} ms para respeitar o limite de requisições", waitTime);
-                Thread.sleep(waitTime);
+public ResponseEntity<?> download(@RequestBody Download download) throws InterruptedException {
+    synchronized (DownloadController.class) {
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastRequestTime < DELAY_MS) {
+            long waitTime = DELAY_MS - (currentTime - lastRequestTime);
+            logger.info("Aguardando {} ms para respeitar o limite de requisições", waitTime);
+            Thread.sleep(waitTime);
+        }
+
+        int currentCount = requestCount.incrementAndGet();
+        try {
+            if (currentCount > REQUEST_LIMIT) {
+                logger.warn("Limite de requisições atingido: {}", currentCount);
+                return ResponseEntity.status(429).body("Limite de requisições atingido. Tente novamente em alguns segundos.");
             }
 
-            int currentCount = requestCount.incrementAndGet();
-            try {
-                if (currentCount > REQUEST_LIMIT) {
-                    logger.warn("Limite de requisições atingido: {}", currentCount);
-                    return ResponseEntity.status(429).body("Limite de requisições atingido. Tente novamente em alguns segundos.");
-                }
+            logger.info("Iniciando download: {}", download);
 
-                logger.info("Iniciando download: {}", download);
-                String url = download.getUrl();
-                String format = download.getFormat();
-                String quality = download.getQuality();
-                String savePath = download.getSavePath();
+            String url = download.getUrl();
+            String format = download.getFormat();
+            String quality = download.getQuality();
+            String savePath = download.getSavePath();
 
-                if (url == null || url.trim().isEmpty()) {
-                    return ResponseEntity.badRequest().body("URL não pode ser vazia");
-                }
-                
-                // Validar formatos suportados
-                if (format == null || (!format.equals("mp3") && !format.equals("mp4") && 
-                                      !format.equals("webm") && !format.equals("ogg") && 
-                                      !format.equals("flac"))) {
-                    return ResponseEntity.badRequest().body("Formato inválido: " + format);
-                }
-                
-                if (savePath == null || savePath.trim().isEmpty()) {
-                    savePath = "output." + format;
-                }
-
-                File saveDir = new File(defaultOutputDir);
-                if (!saveDir.exists()) {
-                    saveDir.mkdirs();
-                }
-
-                // Verificar espaço em disco
-                long freeSpace = saveDir.getFreeSpace();
-                long requiredSpace = 2_000_000_000L;
-                if (freeSpace < requiredSpace) {
-                    logger.error("Espaço insuficiente: {} MB disponível, {} MB necessário", freeSpace / 1_000_000, requiredSpace / 1_000_000);
-                    return ResponseEntity.status(500).body("Espaço insuficiente no diretório: " + saveDir.getAbsolutePath());
-                }
-
-                // Inicializar o download no banco de dados
-                download.setStatus("Iniciado");
-                download.setProgress(0);
-                downloadRepository.save(download);
-                
-                // Notificar início do download via WebSocket
-                DownloadProgressMessage progressMessage = new DownloadProgressMessage(
-                    download.getId(),
-                    download.getUrl(),
-                    download.getFormat(),
-                    download.getQuality(),
-                    download.getStatus(),
-                    0,
-                    download.getFileName(),
-                    download.getFilePath()
-                );
-                notificationService.notifyDownloadStarted(progressMessage);
-
-                // Iniciar download assíncrono
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        downloadService.downloadFileAsync(download);
-                    } catch (Exception e) {
-                        logger.error("Erro durante download assíncrono: {}", e.getMessage(), e);
-                        download.setStatus("Erro");
-                        downloadRepository.save(download);
-                        
-                        // Notificar erro via WebSocket
-                        DownloadProgressMessage errorMessage = new DownloadProgressMessage(
-                            download.getId(),
-                            download.getUrl(),
-                            download.getFormat(),
-                            download.getQuality(),
-                            "Erro",
-                            0,
-                            download.getFileName(),
-                            download.getFilePath()
-                        );
-                        notificationService.notifyError(errorMessage);
-                    }
-                });
-
-                return ResponseEntity.ok().body("{\"message\": \"Download started\", \"id\": \"" + download.getId() + "\"}");
-            } catch (Exception e) {
-                logger.error("Erro ao processar download: {}", e.getMessage(), e);
-                return ResponseEntity.status(500).body("Erro ao processar o download: " + e.getMessage());
-            } finally {
-                lastRequestTime = System.currentTimeMillis();
-                // Resetar contador após um tempo
-                new Thread(() -> {
-                    try {
-                        Thread.sleep(DELAY_MS);
-                        requestCount.decrementAndGet();
-                    } catch (InterruptedException e) {
-                        logger.error("Erro no reset do contador: {}", e.getMessage());
-                    }
-                }).start();
+            if (url == null || url.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body("URL não pode ser vazia");
             }
+
+            if (format == null || (!format.equals("mp3") && !format.equals("mp4") &&
+                                  !format.equals("webm") && !format.equals("ogg") &&
+                                  !format.equals("flac"))) {
+                return ResponseEntity.badRequest().body("Formato inválido: " + format);
+            }
+
+            if (savePath == null || savePath.trim().isEmpty()) {
+                savePath = "output." + format;
+            }
+
+            String chosenDir = (download.getCustomDir() != null && !download.getCustomDir().isBlank())
+                    ? download.getCustomDir()
+                    : defaultOutputDir;
+
+            File saveDir = new File(chosenDir);
+            if (!saveDir.exists()) {
+                saveDir.mkdirs();
+            }
+
+            long freeSpace = saveDir.getFreeSpace();
+            long requiredSpace = 2_000_000_000L;
+            if (freeSpace < requiredSpace) {
+                logger.error("Espaço insuficiente: {} MB disponível, {} MB necessário", freeSpace / 1_000_000, requiredSpace / 1_000_000);
+                return ResponseEntity.status(500).body("Espaço insuficiente no diretório: " + saveDir.getAbsolutePath());
+            }
+
+            download.setStatus("Iniciado");
+            download.setProgress(0);
+            downloadRepository.save(download);
+
+            DownloadProgressMessage progressMessage = new DownloadProgressMessage(
+                download.getId(), download.getUrl(), download.getFormat(), download.getQuality(),
+                download.getStatus(), 0, download.getFileName(), download.getFilePath()
+            );
+            notificationService.notifyDownloadStarted(progressMessage);
+
+            String finalChosenDir = chosenDir;
+            CompletableFuture.runAsync(() -> {
+                try {
+                    downloadService.downloadFileAsync(download, finalChosenDir);
+                } catch (Exception e) {
+                    logger.error("Erro durante download assíncrono: {}", e.getMessage(), e);
+                    download.setStatus("Erro");
+                    downloadRepository.save(download);
+
+                    DownloadProgressMessage errorMessage = new DownloadProgressMessage(
+                        download.getId(), download.getUrl(), download.getFormat(), download.getQuality(),
+                        "Erro", 0, download.getFileName(), download.getFilePath()
+                    );
+                    notificationService.notifyError(errorMessage);
+                }
+            });
+
+            return ResponseEntity.ok().body("{\"message\": \"Download started\", \"id\": \"" + download.getId() + "\"}");
+        } catch (Exception e) {
+            logger.error("Erro ao processar download: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).body("Erro ao processar o download: " + e.getMessage());
+        } finally {
+            lastRequestTime = System.currentTimeMillis();
+            new Thread(() -> {
+                try {
+                    Thread.sleep(DELAY_MS);
+                    requestCount.decrementAndGet();
+                } catch (InterruptedException e) {
+                    logger.error("Erro no reset do contador: {}", e.getMessage());
+                }
+            }).start();
         }
     }
+}
 
     @GetMapping("/download-file")
     public ResponseEntity<Resource> downloadFile(@RequestParam("filePath") String filePath) throws IOException {
